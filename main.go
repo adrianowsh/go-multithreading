@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/adrianowsh/go-multithreading/dto"
@@ -18,31 +17,38 @@ const url_brasilapi = "https://brasilapi.com.br/api/cep/v1"
 const time_to_request = 1 * time.Second
 
 func main() {
-	wg := sync.WaitGroup{}
-	wg.Add(2)
+	chViaCep := make(chan string)
+	chBrasilApi := make(chan string)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time_to_request)
 	defer cancel()
 
-	go func() {
+	go func(ch chan<- string) {
 		resultViaCep, err := getResultViaCep(ctx, "06401015")
 		if err != nil {
 			log.Fatalln("timeout viacep", err)
 		}
-		println("viacep => ", resultViaCep)
-		wg.Done()
-	}()
+		ch <- fmt.Sprintf("brasil via cep => %s", resultViaCep)
 
-	go func() {
+	}(chViaCep)
+
+	go func(ch chan<- string) {
 		resultBrasilApi, err := getResultBrasilApi(ctx, "06401015'")
 		if err != nil {
 			log.Fatalln("timeout brasilapi", err)
 		}
-		println("brasil api =>", resultBrasilApi)
-		wg.Done()
-	}()
+		ch <- fmt.Sprintf("brasil api => %s", resultBrasilApi)
 
-	wg.Wait()
+	}(chBrasilApi)
+
+	select {
+	case respViaCep := <-chViaCep:
+		println("viacep api -> ", respViaCep)
+	case respBrasilApi := <-chBrasilApi:
+		println("brasil api -> ", respBrasilApi)
+	case <-ctx.Done():
+		println("context timeout")
+	}
 }
 
 func getViaCepAPi(ctx context.Context, cep string) (*dto.ViaCep, error) {
@@ -96,14 +102,12 @@ func getBrasilApi(ctx context.Context, cep string) (*dto.BrasilApi, error) {
 }
 
 func getResultViaCep(ctx context.Context, cep string) (string, error) {
-
 	resp, err := getViaCepAPi(ctx, cep)
 	if err != nil {
 		return "", err
 	}
-	resultViaCep, _ := json.Marshal(resp)
-
-	return string(resultViaCep), nil
+	jsonResult, _ := json.Marshal(resp)
+	return string(jsonResult), nil
 }
 
 func getResultBrasilApi(ctx context.Context, cep string) (string, error) {
@@ -111,7 +115,6 @@ func getResultBrasilApi(ctx context.Context, cep string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resultBrasilApi, _ := json.Marshal(resp)
-
-	return string(resultBrasilApi), nil
+	jsonResult, _ := json.Marshal(resp)
+	return string(jsonResult), nil
 }
